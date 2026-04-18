@@ -168,8 +168,7 @@ jobs:
           curl \
           dwarves \
           cpio \
-          gcc-aarch64-linux-gnu \
-          gcc-arm-linux-androideabi
+          gcc-aarch64-linux-gnu
           
       - name: Clone Kernel Source
         run: |
