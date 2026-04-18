@@ -54,9 +54,10 @@ on:
         default: ""
         
       kernel_configs:
-        description: type ur kernel configs(default is gki_defconfig vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config)
+        description: type ur kernel configs(default is for oplus-sm8550-los)
         required: true
         type: choice
+        default: oplus-sm8550-los
         options:
           - Manual-Type
           - oplus-sm8150-los
@@ -71,7 +72,7 @@ on:
         description: if u selected Manual-Type in previous, manually type ur kernel configs here.
         required: false
         type: string
-        default: ""
+        default: "gki_defconfig vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config"
 
       enable_tmpfs-xattr:
         description: u can enable this if ur kernel has no CONFIG_TMPFS_XATTR=y
