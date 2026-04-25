@@ -506,7 +506,22 @@ jobs:
 
           if [[ "${{ inputs.ksu_type }}" == KernelSU-by-xx* ]]; then
 
-            echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> out/.config
+            KERNEL_MAJOR="$(sed -n 's/^VERSION = //p' Makefile | head -n1 | tr -d '[:space:]')"
+            KERNEL_MINOR="$(sed -n 's/^PATCHLEVEL = //p' Makefile | head -n1 | tr -d '[:space:]')"
+            KERNEL_SUBLEVEL="$(sed -n 's/^SUBLEVEL = //p' Makefile | head -n1 | tr -d '[:space:]')"
+            KERNEL_VERSION="${KERNEL_MAJOR}.${KERNEL_MINOR}.${KERNEL_SUBLEVEL}"
+
+            if [[ "${KERNEL_MAJOR}" =~ ^[0-9]+$ && "${KERNEL_MINOR}" =~ ^[0-9]+$ ]] && \
+               (( KERNEL_MAJOR < 4 || (KERNEL_MAJOR == 4 && KERNEL_MINOR <= 14) )); then
+
+              echo "Enable CONFIG_KSU_TAMPER_SYSCALL_TABLE for kernel ${KERNEL_VERSION}"
+              echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> out/.config
+
+            else
+
+              echo "Skip CONFIG_KSU_TAMPER_SYSCALL_TABLE for kernel ${KERNEL_VERSION}; backslashxx marks it experimental for 3.10-4.14"
+
+            fi
 
           fi
 
