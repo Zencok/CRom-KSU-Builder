@@ -82,10 +82,12 @@ on:
           - oplus-sm8350-los
           - oplus-sm8550-los
           - oplus-sm8650-los
+          - xiaomi-sm8550-fuxi-los
+          - xiaomi-sm8550-nuwa-los
 
 
       kernel_configs_manual:
-        description: "Kernel-Configs: If u selected Manual-Type in previous options, manually type ur kernel configs here."
+        description: "Kernel-Configs: If u selected Manual-Type in previous options, manually type ur kernel configs here. Example for LineageOS xiaomi sm8550: gki_defconfig vendor/fuxi_GKI.config vendor/debugfs.config"
         required: false
         type: string
         default: "gki_defconfig vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config"
@@ -302,6 +304,8 @@ jobs:
 
           cd ${{ inputs.soc }}
 
+          CONFIG_TARGETS=""
+
           if [[ "${{ inputs.kernel_configs }}" == "Manual-Type" ]]; then
 
             if [[ -z "${{ inputs.kernel_configs_manual }}" ]]; then
@@ -311,39 +315,80 @@ jobs:
 
             fi
 
-            make O=out ${{ inputs.kernel_configs_manual }}
+            CONFIG_TARGETS="${{ inputs.kernel_configs_manual }}"
 
           else
 
             case "${{ inputs.kernel_configs }}" in
 
               "oplus-sm8150-los")
-              make O=out vendor/sm8150-perf_defconfig vendor/oplus.config
+              CONFIG_TARGETS="vendor/sm8150-perf_defconfig vendor/oplus.config"
               ;;
 
               "oplus-sm8150-yaap")
-              make O=out gulch_defconfig vendor/debugfs.config
+              CONFIG_TARGETS="gulch_defconfig vendor/debugfs.config"
               ;;
 
               "oplus-sm8250-los")
-              make O=out vendor/kona-perf_defconfig vendor/oplus.config
+              CONFIG_TARGETS="vendor/kona-perf_defconfig vendor/oplus.config"
               ;;
 
               "oplus-sm8350-los")
-              make O=out vendor/lahaina-qgki_defconfig
+              CONFIG_TARGETS="vendor/lahaina-qgki_defconfig"
               ;;
 
               "oplus-sm8550-los")
-              make O=out gki_defconfig vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config
+              CONFIG_TARGETS="gki_defconfig vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config"
               ;;
 
               "oplus-sm8650-los")
-              make O=out gki_defconfig vendor/pineapple_GKI.config vendor/oplus/pineapple_GKI.config
+              CONFIG_TARGETS="gki_defconfig vendor/pineapple_GKI.config vendor/oplus/pineapple_GKI.config"
+              ;;
+
+              "xiaomi-sm8550-fuxi-los")
+              CONFIG_TARGETS="gki_defconfig vendor/fuxi_GKI.config vendor/debugfs.config"
+              ;;
+
+              "xiaomi-sm8550-nuwa-los")
+              CONFIG_TARGETS="gki_defconfig vendor/nuwa_GKI.config vendor/debugfs.config"
               ;;
 
             esac
 
           fi
+
+          if [[ -z "${CONFIG_TARGETS}" ]]; then
+
+            echo "Failed to resolve kernel config targets for preset: ${{ inputs.kernel_configs }}"
+            exit 1
+
+          fi
+
+          read -r -a CONFIG_ARRAY <<< "${CONFIG_TARGETS}"
+          MISSING_CONFIGS=()
+
+          for CONFIG_ITEM in "${CONFIG_ARRAY[@]}"; do
+
+            if [[ ! -f "arch/arm64/configs/${CONFIG_ITEM}" ]]; then
+
+              MISSING_CONFIGS+=("${CONFIG_ITEM}")
+
+            fi
+
+          done
+
+          if (( ${#MISSING_CONFIGS[@]} > 0 )); then
+
+            echo "These kernel config fragments do not exist in this source tree:"
+            printf ' - %s\n' "${MISSING_CONFIGS[@]}"
+            echo
+            echo "Available config hints from arch/arm64/configs:"
+            find arch/arm64/configs -type f | sed 's#^arch/arm64/configs/##' | sort | grep -E '(^gki_defconfig$|vendor/.+(GKI|debugfs|oplus|xiaomi|kona|kalama|lahaina|pineapple))' || true
+            exit 1
+
+          fi
+
+          make O=out ${CONFIG_TARGETS}
 
           if [[ "${{ inputs.enable_tmpfs-xattr }}" == "true" ]]; then
 
