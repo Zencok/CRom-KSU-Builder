@@ -175,11 +175,31 @@ jobs:
           
       - name: Clone Kernel Source
         run: |
-          git clone --depth=1 -b ${{ inputs.kernel_branch }} https://github.com/${{ inputs.kernel_source }}/${{ inputs.kernel_source_format }}_${{ inputs.brand }}_${{ inputs.soc }}.git ${{ inputs.soc }}
+          KERNEL_REPO_URL="https://github.com/${{ inputs.kernel_source }}/${{ inputs.kernel_source_format }}_${{ inputs.brand }}_${{ inputs.soc }}.git"
+          MODULES_REPO_URL="https://github.com/${{ inputs.kernel_source }}/${{ inputs.kernel_source_format }}_${{ inputs.brand }}_${{ inputs.soc }}-modules.git"
+
+          git clone --depth=1 -b ${{ inputs.kernel_branch }} "${KERNEL_REPO_URL}" ${{ inputs.soc }}
 
           if [[ "${{ inputs.has_modules_repo }}" == "true" ]]; then
 
-            git clone --depth=1 -b ${{ inputs.kernel_branch }} https://github.com/${{ inputs.kernel_source }}/${{ inputs.kernel_source_format }}_${{ inputs.brand }}_${{ inputs.soc }}-modules.git ${{ inputs.soc }}-modules
+            if git ls-remote --exit-code "${MODULES_REPO_URL}" HEAD >/dev/null 2>&1; then
+
+              if git ls-remote --exit-code --heads "${MODULES_REPO_URL}" "${{ inputs.kernel_branch }}" >/dev/null 2>&1; then
+
+                git clone --depth=1 -b ${{ inputs.kernel_branch }} "${MODULES_REPO_URL}" ${{ inputs.soc }}-modules
+
+              else
+
+                echo "Modules repo exists but branch does not: ${MODULES_REPO_URL} @ ${{ inputs.kernel_branch }}"
+                exit 1
+
+              fi
+
+            else
+
+              echo "Modules repo not found, skip cloning: ${MODULES_REPO_URL}"
+
+            fi
 
           fi
 
