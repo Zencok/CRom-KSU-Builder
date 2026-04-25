@@ -110,6 +110,7 @@ on:
           - KernelSU-Next-with-susfs
           - KowSU
           - KernelSU-by-xx
+          - KernelSU-by-xx-with-susfs
           - ReSukiSU
           - ReSukiSU-with-susfs
 
@@ -241,6 +242,62 @@ jobs:
         run: |
           cd ${{ inputs.soc }}
 
+          apply_sm8250_los232_susfs_fixups() {
+          python3 - <<'PY'
+          from pathlib import Path
+
+
+          def insert_after(text, needle, block):
+              if block in text:
+                  return text
+              if needle not in text:
+                  raise RuntimeError(f"needle not found: {needle!r}")
+              return text.replace(needle, needle + block, 1)
+
+
+          def replace_once(text, old, new):
+              if new in text:
+                  return text
+              if old not in text:
+                  raise RuntimeError(f"snippet not found: {old!r}")
+              return text.replace(old, new, 1)
+
+
+          namespace_path = Path("fs/namespace.c")
+          namespace_text = namespace_path.read_text()
+          namespace_text = insert_after(
+              namespace_text,
+              '#include <linux/fs_context.h>\n',
+              '\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux/susfs_def.h>\n#endif\n',
+          )
+          namespace_text = insert_after(
+              namespace_text,
+              '#include "internal.h"\n',
+              '\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nextern bool susfs_is_current_ksu_domain(void);\nextern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n\nstatic DEFINE_IDA(susfs_mnt_id_ida);\nstatic DEFINE_IDA(susfs_mnt_group_ida);\n#endif\n',
+          )
+          namespace_text = replace_once(
+              namespace_text,
+              '\tmnt = alloc_vfsmnt(fc->source ?: "none");\n',
+              '\t#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n\t// We will just stop checking for ksu process if /sdcard/Android is accessible,\n\t// for the sake of performance\n\tif (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted)) {\n\t\tif (susfs_is_current_ksu_domain()) {\n\t\t\tmnt = susfs_alloc_non_unshare_ksu_vfsmnt(fc->source ?: "none");\n\t\t\tgoto bypass_orig_flow;\n\t\t}\n\t}\n\t#endif\n\n\tmnt = alloc_vfsmnt(fc->source ?: "none");\n\t#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nbypass_orig_flow:\n\t#endif\n',
+          )
+          namespace_path.write_text(namespace_text)
+
+          task_mmu_path = Path("fs/proc/task_mmu.c")
+          task_mmu_text = task_mmu_path.read_text()
+          task_mmu_text = insert_after(
+              task_mmu_text,
+              '#include <linux/ctype.h>\n',
+              '#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif\n\n',
+          )
+          task_mmu_text = replace_once(
+              task_mmu_text,
+              '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);\n\t\tmmap_read_unlock(mm);\n',
+              '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);\n#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n\t\t{\n\t\t\tstruct vm_area_struct *vma = find_vma(mm, start_vaddr);\n\t\t\tif (vma && vma->vm_file) {\n\t\t\t\tstruct inode *inode = file_inode(vma->vm_file);\n\t\t\t\tif (SUSFS_IS_INODE_SUS_MAP(inode))\n\t\t\t\t\tpm.buffer->pme = 0;\n\t\t\t}\n\t\t}\n#endif\n\t\tmmap_read_unlock(mm);\n',
+          )
+          task_mmu_path.write_text(task_mmu_text)
+          PY
+          }
+
           case "${{ inputs.ksu_type }}" in
 
             "None")
@@ -254,7 +311,7 @@ jobs:
                curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -s master
               ;;
 
-            "KernelSU-by-xx")
+            "KernelSU-by-xx"|"KernelSU-by-xx-with-susfs")
               curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s master
               ;;
 
@@ -276,7 +333,8 @@ jobs:
 
             if [[ "${{ inputs.susfs-gki }}" == "None" && "${{ inputs.susfs-nongki }}" == "None" ]]; then
 
-              echo "skip susfs"
+              echo "susfs variant selected but no susfs kernel version was chosen"
+              exit 1
 
             elif [[ "${{ inputs.susfs-gki }}" != "None" && "${{ inputs.susfs-nongki }}" != "None" ]]; then
 
@@ -299,7 +357,31 @@ jobs:
               curl -Lo susfs.patch https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/refs/heads/mainline/Patches/Patch/susfs_patch_to_${{ inputs.susfs-nongki }}.patch
               curl -Lo inline.sh https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/refs/heads/mainline/Patches/susfs_inline_hook_patches.sh
 
-              patch -p1 < susfs.patch
+              SUSFS_PATCH_STATUS=0
+              patch -p1 --forward < susfs.patch || SUSFS_PATCH_STATUS=$?
+
+              if [[ "${{ inputs.brand }}" == "xiaomi" && "${{ inputs.soc }}" == "sm8250" && "${{ inputs.kernel_source }}" == "LineageOS" && "${{ inputs.kernel_branch }}" == "lineage-23.2" && "${{ inputs.susfs-nongki }}" == "4.19" ]]; then
+
+                echo "Applying LineageOS/xiaomi/sm8250 lineage-23.2 susfs fixups"
+                apply_sm8250_los232_susfs_fixups
+                rm -f fs/namespace.c.rej fs/proc/task_mmu.c.rej
+                find . -name '*.orig' -delete || true
+
+                mapfile -t REMAINING_REJECTS < <(find . -name '*.rej' -print)
+                if (( ${#REMAINING_REJECTS[@]} > 0 )); then
+                  echo "Remaining susfs patch rejects after fixups:"
+                  printf '%s\n' "${REMAINING_REJECTS[@]}"
+                  exit 1
+                fi
+
+              elif [[ ${SUSFS_PATCH_STATUS} -ne 0 ]]; then
+
+                echo "susfs patch failed and no tree-specific fallback is available for this source"
+                find . -name '*.rej' -print || true
+                exit ${SUSFS_PATCH_STATUS}
+
+              fi
+
               bash inline.sh
 
             fi
@@ -422,7 +504,7 @@ jobs:
 
           fi
 
-          if [[ "${{ inputs.ksu_type }}" == "KernelSU-by-xx" ]]; then
+          if [[ "${{ inputs.ksu_type }}" == KernelSU-by-xx* ]]; then
 
             echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> out/.config
 
