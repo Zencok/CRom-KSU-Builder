@@ -82,6 +82,7 @@ on:
           - oplus-sm8350-los
           - oplus-sm8550-los
           - oplus-sm8650-los
+          - xiaomi-sm8250-elish-los
           - xiaomi-sm8550-fuxi-los
           - xiaomi-sm8550-nuwa-los
 
@@ -343,6 +344,10 @@ jobs:
 
               "oplus-sm8650-los")
               CONFIG_TARGETS="gki_defconfig vendor/pineapple_GKI.config vendor/oplus/pineapple_GKI.config"
+              ;;
+
+              "xiaomi-sm8250-elish-los")
+              CONFIG_TARGETS="vendor/kona-perf_defconfig vendor/debugfs.config vendor/xiaomi/sm8250-common.config vendor/xiaomi/elish.config"
               ;;
 
               "xiaomi-sm8550-fuxi-los")
